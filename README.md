@@ -235,7 +235,6 @@ chmod +x bin/mode4/server_a
 ## Directory Structure
 
 ```
-benchmark_package/
 ├── benchmark.sh              # Main entry point
 ├── setup.sh                  # Environment setup
 ├── compare.sh                # Result comparison tool
