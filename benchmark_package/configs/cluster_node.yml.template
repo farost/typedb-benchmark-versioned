@@ -1,0 +1,10 @@
+server:
+    address: 0.0.0.0:GRPC_PORT
+    http: {enabled: false, address: 0.0.0.0:8001}
+    authentication: {token-expiration-seconds: 5000}
+    encryption: {enabled: false}
+storage:
+    data-directory: DATA_DIR_PLACEHOLDER
+logging:
+    directory: LOG_DIR_PLACEHOLDER
+diagnostics: {monitoring: {enabled: false}, reporting: {metrics: false, errors: false}}
