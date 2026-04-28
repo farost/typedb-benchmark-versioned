@@ -62,6 +62,8 @@ mode1_generate_config() {
     sed -e "s|DATA_DIR_PLACEHOLDER|$data_dir|g" \
         -e "s|LOG_DIR_PLACEHOLDER|$wal_dir|g" \
         -e "s|GRPC_PORT|$GRPC_PORT|g" \
+        -e "s|HTTP_PORT|8001|g" \
+        -e "s|MONITORING_PORT|4104|g" \
         "$CONFIG_DIR/core.yml.template" > "$config_file"
     echo "$config_file"
 }

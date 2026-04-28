@@ -8,7 +8,7 @@ set -e
 # Usage:
 #   ./benchmark.sh MODE VARIANT [RUNS] [DURATION]
 #
-# MODE:     mode1 | mode2 | mode3 | mode4
+# MODE:     mode1 | mode2 | mode3 | mode4 | mode5
 # VARIANT:  a | b | compare
 #
 # Arguments:
@@ -19,7 +19,7 @@ set -e
 #   CLIENTS=2           Parallel TPC-C worker processes
 #   WAREHOUSES=1        TPC-C warehouse count
 #   SCALEFACTOR=100     TPC-C scale factor (higher = less data)
-#   CLUSTER_NODES=3     Nodes for cluster modes (2, 4)
+#   CLUSTER_NODES=3     Nodes for cluster modes (2, 5)
 #
 # Examples:
 #   ./benchmark.sh mode1 a 5 120           # OLD Core, single run
@@ -47,10 +47,11 @@ if [ -z "$MODE" ] || [ -z "$VARIANT" ]; then
     echo "Usage: $0 MODE VARIANT [RUNS] [DURATION]"
     echo ""
     echo "Modes:"
-    echo "  mode1   OLD Core     (typedb master, release 3.10.x)"
-    echo "  mode2   OLD Cluster  (typedb-cluster master, release 3.10.x)"
-    echo "  mode3   NEW Core     (typedb cluster-support-feature-branch)"
-    echo "  mode4   NEW Cluster  (typedb-cluster cluster-support-feature-branch)"
+    echo "  mode1   OLD Core           (typedb master, release 3.10.x)"
+    echo "  mode2   OLD Cluster 3-node (typedb-cluster master, release 3.10.x)"
+    echo "  mode3   NEW Core           (typedb cluster-support-feature-branch)"
+    echo "  mode4   NEW Cluster 1-node (typedb-cluster cluster-support-feature-branch)"
+    echo "  mode5   NEW Cluster 3-node (typedb-cluster cluster-support-feature-branch, admin registration)"
     echo ""
     echo "Variants:"
     echo "  a        Run only variant A (baseline / single build)"
@@ -70,7 +71,7 @@ fi
 
 MODE_SCRIPT="$SCRIPT_DIR/modes/${MODE}.sh"
 if [ ! -f "$MODE_SCRIPT" ]; then
-    echo "Error: Unknown mode '$MODE'. Available: mode1, mode2, mode3, mode4"
+    echo "Error: Unknown mode '$MODE'. Available: mode1, mode2, mode3, mode4, mode5"
     exit 1
 fi
 

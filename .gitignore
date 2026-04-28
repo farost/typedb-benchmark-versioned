@@ -11,6 +11,7 @@ venvs/
 
 # Server binaries (user-provided, too large for git)
 bin/mode*/server_*
+bin/mode*/admin
 
 # Python cache
 __pycache__/

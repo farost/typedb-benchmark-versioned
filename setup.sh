@@ -122,6 +122,7 @@ setup_dirs() {
         "$SCRIPT_DIR/bin/mode2" \
         "$SCRIPT_DIR/bin/mode3" \
         "$SCRIPT_DIR/bin/mode4" \
+        "$SCRIPT_DIR/bin/mode5" \
         "$SCRIPT_DIR/logs/results" \
         "$SCRIPT_DIR/data" \
         "$SCRIPT_DIR/configs/generated" \
@@ -149,7 +150,7 @@ case "${1:-}" in
         echo "Usage: $0 {old|new|all} [wheel_path]"
         echo ""
         echo "  old               Setup for modes 1 & 2 (pip install typedb-driver)"
-        echo "  new [wheel]       Setup for modes 3 & 4 (local driver wheel)"
+        echo "  new [wheel]       Setup for modes 3, 4, 5 (local driver wheel)"
         echo "  all [wheel]       Setup both environments"
         echo ""
         echo "Current state:"
@@ -165,7 +166,7 @@ case "${1:-}" in
         fi
         echo ""
         echo "Binary directories:"
-        for m in mode1 mode2 mode3 mode4; do
+        for m in mode1 mode2 mode3 mode4 mode5; do
             local count
             count=$(ls "$SCRIPT_DIR/bin/$m/" 2>/dev/null | wc -l | tr -d ' ')
             if [ "$count" -gt 0 ]; then

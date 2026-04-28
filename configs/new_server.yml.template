@@ -1,8 +1,13 @@
 server:
     address: 0.0.0.0:GRPC_PORT
-    http: {enabled: false, address: 0.0.0.0:HTTP_PORT}
-    authentication: {token-expiration-seconds: 5000}
-    encryption: {enabled: false}
+    connection-address: 127.0.0.1:GRPC_PORT
+    http:
+        enabled: false
+        address: 0.0.0.0:HTTP_PORT
+    authentication:
+        token-expiration-seconds: 5000
+    encryption:
+        enabled: false
 storage:
     data-directory: DATA_DIR_PLACEHOLDER
 logging:

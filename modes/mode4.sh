@@ -1,25 +1,30 @@
 #!/bin/bash
-# Mode 4: NEW Cluster (typedb/typedb-cluster cluster-support-feature-branch)
+# Mode 4: NEW Cluster binary, single node (typedb-cluster cluster-support-feature-branch)
 #
-# 3-node TypeDB Cluster using the NEW clustering architecture.
+# Single TypeDB Cluster server running alone (no peer registration).
+# Compares cluster binary overhead vs core binary (mode 3).
 # Uses locally-built typedb-driver from cluster-support-feature-branch.
 #
 # Binaries:
 #   bin/mode4/server_a   — e.g. baseline cluster build
 #   bin/mode4/server_b   — e.g. optimized cluster build (optional)
 #
-# Driver: typedb3cluster (Cluster edition, locally-built typedb-driver)
+# Driver: typedb3 (Core edition, locally-built typedb-driver)
 #
 # Build instructions:
 #   Server:  cd typedb-cluster && bazel build //:assemble-typedb-all --compilation_mode=opt
 #   Driver:  cd typedb-driver && bazel build //python:assemble-pip311
 
-MODE_NAME="Mode 4 — NEW Cluster (cluster-support-feature-branch)"
-MODE_DRIVER="typedb3cluster"
+MODE_NAME="Mode 4 — NEW Cluster binary, single node (cluster-support-feature-branch)"
+MODE_DRIVER="typedb3"
 MODE_VENV="$VENV_DIR/new"
-MODE_TPCC_CONFIG="$CONFIG_DIR/tpcc/cluster.cfg"
+MODE_TPCC_CONFIG="$CONFIG_DIR/tpcc/core.cfg"
 
-CLUSTER_NODES=${CLUSTER_NODES:-3}
+GRPC_PORT=1729
+HTTP_PORT=8000
+ADMIN_PORT=1728
+CLUSTERING_PORT=1730
+MONITORING_PORT=4104
 
 mode4_binary_path() {
     local variant="$1"
@@ -33,58 +38,50 @@ mode4_start_server() {
     require_binary "$binary" "Mode 4 server"
     cleanup_servers
 
-    local i
-    for i in $(seq 1 "$CLUSTER_NODES"); do
-        local data_dir="$DATA_DIR/mode4_node${i}"
-        local cluster_dir="$DATA_DIR/mode4_cluster_${i}"
-        local wal_dir="$LOG_DIR/mode4_wal_${i}"
-        rm -rf "$data_dir" "$cluster_dir"
-        mkdir -p "$data_dir" "$cluster_dir" "$wal_dir"
-    done
+    local data_dir="$DATA_DIR/mode4"
+    local cluster_dir="$DATA_DIR/mode4_clustering"
+    local log_file="$LOG_DIR/mode4_${variant_tag}.log"
+    rm -rf "$data_dir" "$cluster_dir"
+    mkdir -p "$data_dir" "$cluster_dir" "$(dirname "$log_file")"
 
-    log "Starting ${CLUSTER_NODES}-node NEW cluster..."
-    for i in $(seq 1 "$CLUSTER_NODES"); do
-        local grpc_port=$((i * 10000 + 1729))
-        local cluster_port=$((i * 10000 + 1730))
-        local data_dir="$DATA_DIR/mode4_node${i}"
-        local cluster_dir="$DATA_DIR/mode4_cluster_${i}"
-        local wal_dir="$LOG_DIR/mode4_wal_${i}"
-        local log_file="$LOG_DIR/mode4_${variant_tag}_node${i}.log"
+    local config
+    config=$(mode4_generate_config "$data_dir")
 
-        local config_file="$CONFIG_DIR/generated/mode4_node${i}.yml"
-        mkdir -p "$(dirname "$config_file")"
-        sed -e "s|DATA_DIR_PLACEHOLDER|$data_dir|g" \
-            -e "s|LOG_DIR_PLACEHOLDER|$wal_dir|g" \
-            -e "s|GRPC_PORT|$grpc_port|g" \
-            "$CONFIG_DIR/cluster_node.yml.template" > "$config_file"
+    log "Starting NEW Cluster server, single node (gRPC=$GRPC_PORT, HTTP=$HTTP_PORT)..."
+    "$binary" \
+        --config "$config" \
+        --development-mode.enabled true \
+        --diagnostics.deployment-id "benchmark" \
+        --server.admin.enabled true \
+        --server.admin.port "$ADMIN_PORT" \
+        --server.clustering.id 1 \
+        --server.clustering.address "127.0.0.1:$CLUSTERING_PORT" \
+        --storage.clustering-directory "$cluster_dir" \
+        > "$log_file" 2>&1 &
 
-        "$binary" \
-            --config "$config_file" \
-            --development-mode.enabled true \
-            --diagnostics.deployment-id "node$i" \
-            --server.clustering.id "$i" \
-            --server.clustering.address "127.0.0.1:$cluster_port" \
-            --storage.clustering-directory "$cluster_dir" \
-            > "$log_file" 2>&1 &
+    if ! wait_for_port "$GRPC_PORT" 30; then
+        error "Server failed to start. Log:"
+        tail -20 "$log_file"
+        return 1
+    fi
+    sleep 5
+    log "Server ready on port $GRPC_PORT"
+}
 
-        log "  Node $i started (gRPC=$grpc_port, cluster=$cluster_port)"
-    done
+mode4_generate_config() {
+    local data_dir="$1"
+    local wal_dir="$LOG_DIR/mode4_wal"
+    mkdir -p "$wal_dir"
 
-    log "Waiting for cluster to form..."
-    sleep 20
-
-    for i in $(seq 1 "$CLUSTER_NODES"); do
-        local grpc_port=$((i * 10000 + 1729))
-        if nc -z 127.0.0.1 "$grpc_port" 2>/dev/null; then
-            log "  Node $i: ${GREEN}OK${NC}"
-        else
-            error "  Node $i: FAILED (port $grpc_port)"
-            tail -20 "$LOG_DIR/mode4_${variant_tag}_node${i}.log"
-            cleanup_servers
-            return 1
-        fi
-    done
-    log "Cluster ready."
+    local config_file="$CONFIG_DIR/generated/mode4.yml"
+    mkdir -p "$(dirname "$config_file")"
+    sed -e "s|DATA_DIR_PLACEHOLDER|$data_dir|g" \
+        -e "s|LOG_DIR_PLACEHOLDER|$wal_dir|g" \
+        -e "s|GRPC_PORT|$GRPC_PORT|g" \
+        -e "s|HTTP_PORT|$HTTP_PORT|g" \
+        -e "s|MONITORING_PORT|$MONITORING_PORT|g" \
+        "$CONFIG_DIR/new_server.yml.template" > "$config_file"
+    echo "$config_file"
 }
 
 mode4_stop_server() {

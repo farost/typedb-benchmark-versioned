@@ -12,6 +12,7 @@
 #
 # Build instructions:
 #   Server:  cd typedb && bazel build //:assemble-typedb-all --compilation_mode=opt
+#            OR: cd typedb && cargo build --release
 #   Driver:  cd typedb-driver && bazel build //python:assemble-pip311
 
 MODE_NAME="Mode 3 — NEW Core (cluster-support-feature-branch)"
@@ -20,6 +21,8 @@ MODE_VENV="$VENV_DIR/new"
 MODE_TPCC_CONFIG="$CONFIG_DIR/tpcc/core.cfg"
 
 GRPC_PORT=1729
+HTTP_PORT=8000
+MONITORING_PORT=4104
 
 mode3_binary_path() {
     local variant="$1"
@@ -41,7 +44,7 @@ mode3_start_server() {
     local config
     config=$(mode3_generate_config "$data_dir")
 
-    log "Starting NEW Core server (port $GRPC_PORT)..."
+    log "Starting NEW Core server (gRPC=$GRPC_PORT, HTTP=$HTTP_PORT)..."
     "$binary" \
         --config "$config" \
         --development-mode.enabled true \
@@ -66,7 +69,9 @@ mode3_generate_config() {
     sed -e "s|DATA_DIR_PLACEHOLDER|$data_dir|g" \
         -e "s|LOG_DIR_PLACEHOLDER|$wal_dir|g" \
         -e "s|GRPC_PORT|$GRPC_PORT|g" \
-        "$CONFIG_DIR/core.yml.template" > "$config_file"
+        -e "s|HTTP_PORT|$HTTP_PORT|g" \
+        -e "s|MONITORING_PORT|$MONITORING_PORT|g" \
+        "$CONFIG_DIR/new_server.yml.template" > "$config_file"
     echo "$config_file"
 }
 

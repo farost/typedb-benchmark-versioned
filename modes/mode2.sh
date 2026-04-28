@@ -50,9 +50,13 @@ mode2_start_server() {
 
         local config_file="$CONFIG_DIR/generated/mode2_node${i}.yml"
         mkdir -p "$(dirname "$config_file")"
+        local http_port=$((i * 10000 + 8001))
+        local monitoring_port=$((i * 10000 + 4104))
         sed -e "s|DATA_DIR_PLACEHOLDER|$data_dir|g" \
             -e "s|LOG_DIR_PLACEHOLDER|$wal_dir|g" \
             -e "s|GRPC_PORT|$grpc_port|g" \
+            -e "s|HTTP_PORT|$http_port|g" \
+            -e "s|MONITORING_PORT|$monitoring_port|g" \
             "$CONFIG_DIR/cluster_node.yml.template" > "$config_file"
 
         "$binary" \
