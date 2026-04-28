@@ -87,6 +87,7 @@ run_tpcc_load() {
     local config_file="$1"
     local driver_name="$2"
     log "Loading TPC-C data (warehouses=$WAREHOUSES, scalefactor=$SCALEFACTOR)..."
+    local load_log="$LOG_DIR/tpcc_load.log"
     (
         cd "$TPCC_DIR"
         python3 tpcc.py \
@@ -94,33 +95,63 @@ run_tpcc_load() {
             --scalefactor "$SCALEFACTOR" \
             --clients 1 \
             --reset --no-execute \
-            --config "$config_file" "$driver_name" 2>&1 | tail -5
-    )
+            --config "$config_file" "$driver_name" 2>&1
+    ) > "$load_log" 2>&1
+    local rc=$?
+    tail -5 "$load_log"
+    if [ $rc -ne 0 ]; then
+        error "TPC-C data loading FAILED (exit code $rc). Full log: $load_log"
+        error "Last 20 lines:"
+        tail -20 "$load_log"
+        cleanup_servers
+        exit 1
+    fi
+    # Verify the load actually completed (look for "Finished loading")
+    if ! grep -q "Finished loading" "$load_log" 2>/dev/null; then
+        error "TPC-C data loading did not complete. Full log: $load_log"
+        error "Last 20 lines:"
+        tail -20 "$load_log"
+        cleanup_servers
+        exit 1
+    fi
+    log "Data loaded successfully."
 }
 
-# Runs one TPC-C iteration. Prints the tpmC value (or "FAILED").
+# Runs one TPC-C iteration. Sets ITER_TPMC to the tpmC value (or "FAILED").
+# Uses background process + wait so Ctrl+C is not blocked.
 run_tpcc_iteration() {
     local config_file="$1"
     local driver_name="$2"
-    local output
-    output=$(
-        cd "$TPCC_DIR"
-        timeout $((DURATION + 120)) python3 tpcc.py \
-            --warehouses "$WAREHOUSES" \
-            --scalefactor "$SCALEFACTOR" \
-            --clients "$CLIENTS" \
-            --duration "$DURATION" \
-            --no-load \
-            --config "$config_file" "$driver_name" 2>&1
-    )
+    local iter_log="$LOG_DIR/tpcc_iteration.log"
+    ITER_TPMC="FAILED"
+
+    cd "$TPCC_DIR"
+    timeout $((DURATION + 120)) python3 tpcc.py \
+        --warehouses "$WAREHOUSES" \
+        --scalefactor "$SCALEFACTOR" \
+        --clients "$CLIENTS" \
+        --duration "$DURATION" \
+        --no-load \
+        --config "$config_file" "$driver_name" > "$iter_log" 2>&1 &
+    local pid=$!
+    cd "$PACKAGE_DIR"
+
+    # wait is interruptible by signals (unlike command substitution)
+    wait $pid 2>/dev/null || true
+
+    # If interrupted, bail out
+    if [ "${INTERRUPTED:-false}" = true ]; then
+        return
+    fi
+
     # Extract tpmC from output like:  'tpmc': 245.67
     local tpmc
-    tpmc=$(echo "$output" | grep -oP "'tpmc':\s*\K[0-9]+\.[0-9]+" || true)
+    tpmc=$(grep -oP "'tpmc':\s*\K[0-9]+\.[0-9]+" "$iter_log" || true)
     if [ -z "$tpmc" ]; then
         # Fallback: try the older format
-        tpmc=$(echo "$output" | grep "'tpmc'" | grep -oP "[0-9]+\.[0-9]+" || true)
+        tpmc=$(grep "'tpmc'" "$iter_log" | grep -oP "[0-9]+\.[0-9]+" || true)
     fi
-    echo "${tpmc:-FAILED}"
+    ITER_TPMC="${tpmc:-FAILED}"
 }
 
 # ── Result collection ─────────────────────────────────────────────
@@ -134,16 +165,31 @@ run_benchmark_iterations() {
 
     log "Running $RUNS iterations (${DURATION}s each, $CLIENTS clients)..."
     local i
+    local consecutive_failures=0
     for i in $(seq 1 "$RUNS"); do
+        # Check if interrupted between runs
+        if [ "${INTERRUPTED:-false}" = true ]; then
+            break
+        fi
         printf "  Run %d/%d: " "$i" "$RUNS"
-        local tpmc
-        tpmc=$(run_tpcc_iteration "$config_file" "$driver_name")
-        if [ "$tpmc" = "FAILED" ]; then
+        run_tpcc_iteration "$config_file" "$driver_name"
+        if [ "${INTERRUPTED:-false}" = true ]; then
+            echo -e "${RED}INTERRUPTED${NC}"
+            break
+        fi
+        if [ "$ITER_TPMC" = "FAILED" ]; then
             echo -e "${RED}FAILED${NC}"
             warn "Run $i failed — check server logs in $LOG_DIR/"
+            consecutive_failures=$((consecutive_failures + 1))
+            if [ "$consecutive_failures" -ge 3 ]; then
+                error "3 consecutive failures — aborting benchmark."
+                cleanup_servers
+                exit 1
+            fi
         else
-            echo -e "${GREEN}${tpmc} tpmC${NC}"
-            RESULT_VALUES+=("$tpmc")
+            echo -e "${GREEN}${ITER_TPMC} tpmC${NC}"
+            RESULT_VALUES+=("$ITER_TPMC")
+            consecutive_failures=0
         fi
     done
 }

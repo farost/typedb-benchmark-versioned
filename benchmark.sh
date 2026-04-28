@@ -125,7 +125,19 @@ run_single_variant() {
 
 # ── Main ──────────────────────────────────────────────────────────
 
-trap 'cleanup_servers; exit 1' INT TERM
+INTERRUPTED=false
+cleanup_and_exit() {
+    INTERRUPTED=true
+    # Prevent re-entry from recursive signals
+    trap - INT TERM
+    echo ""
+    error "Interrupted — cleaning up servers..."
+    cleanup_servers
+    # Kill any remaining child processes (Python TPC-C runners, etc.)
+    kill -- -$$ 2>/dev/null || true
+    exit 130
+}
+trap cleanup_and_exit INT TERM
 
 header "TypeDB TPC-C Benchmark"
 log "Mode:      $MODE_NAME"

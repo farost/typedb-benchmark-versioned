@@ -128,24 +128,18 @@ class Typedb3Driver(AbstractDriver):
         elif self.edition is EDITION.Cloud:
             raise Exception("Cloud edition is not implemented")
 
-        if config["reset"]:
-            if self.driver.databases.contains(self.database):
-                self.typedb_logger.debug("Deleting database '%s'" % self.database)
-                try:
-                    self.driver.databases.get(self.database).delete()
-                except Exception as e:
-                    self.typedb_logger.warning("Database delete failed: %s" % e)
-                    self.typedb_logger.warning("Tip: kill all servers and clean data/ directory, then retry")
-            # Always create after reset, regardless of delete success
-            if not self.driver.databases.contains(self.database):
-                self.typedb_logger.debug("Creating database '%s'" % self.database)
-                self.driver.databases.create(self.database)
-            else:
-                self.typedb_logger.warning("Database '%s' still exists after failed delete — data may be stale" % self.database)
-        elif not self.driver.databases.contains(self.database):
+        if config["reset"] and self.driver.databases.contains(self.database):
+            self.typedb_logger.debug("Deleting database '%s'" % self.database)
+            try:
+                self.driver.databases.get(self.database).delete()
+            except Exception as e:
+                self.typedb_logger.warning("Database delete failed: %s" % e)
+                self.typedb_logger.warning("Tip: kill all servers and clean data/ directory, then retry")
+
+        if not self.driver.databases.contains(self.database):
             self.typedb_logger.debug("Creating database '%s'" % self.database)
             self.driver.databases.create(self.database)
-            self.typedb_logger.debug("Loading schema file'%s'" % (self.schema))
+            self.typedb_logger.debug("Loading schema file '%s'" % self.schema)
             script_dir = os.path.dirname(os.path.abspath(__file__))
             full_path = os.path.join(script_dir, self.schema)
             with open(full_path, 'r') as data:
@@ -155,7 +149,6 @@ class Typedb3Driver(AbstractDriver):
                 tx.query(define_query)
                 tx.commit()
             self.typedb_logger.debug("Committed schema")
-        ## IF
 
     ## ----------------------------------------------
     ## Logging functions
