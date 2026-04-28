@@ -27,8 +27,20 @@ header(){ echo -e "\n${BOLD}${CYAN}$*${NC}"; }
 # ── Server management ─────────────────────────────────────────────
 
 cleanup_servers() {
+    # Kill any TypeDB server processes — match both the binary name and our bin/ paths
     pkill -9 -f "typedb_server" 2>/dev/null || true
+    pkill -9 -f "server_[ab]" 2>/dev/null || true
+    pkill -9 -f "$BIN_DIR" 2>/dev/null || true
     sleep 2
+    # Verify key ports are free
+    local port
+    for port in 1729 11729 21729 31729; do
+        if nc -z 127.0.0.1 "$port" 2>/dev/null; then
+            warn "Port $port still in use after cleanup — killing process on it"
+            fuser -k "$port/tcp" 2>/dev/null || true
+            sleep 1
+        fi
+    done
 }
 
 wait_for_port() {
