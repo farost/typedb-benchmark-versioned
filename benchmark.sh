@@ -48,7 +48,7 @@ if [ -z "$MODE" ] || [ -z "$VARIANT" ]; then
     echo ""
     echo "Modes:"
     echo "  mode1   OLD Core           (typedb master, release 3.10.x)"
-    echo "  mode2   OLD Cluster 3-node (typedb-cluster master, release 3.10.x)"
+    echo "  mode2   OLD Cluster binary (typedb-cluster master, release 3.10.x, single node)"
     echo "  mode3   NEW Core           (typedb cluster-support-feature-branch)"
     echo "  mode4   NEW Cluster 1-node (typedb-cluster cluster-support-feature-branch)"
     echo "  mode5   NEW Cluster 3-node (typedb-cluster cluster-support-feature-branch, admin registration)"

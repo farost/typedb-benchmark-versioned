@@ -1,22 +1,23 @@
 #!/bin/bash
-# Mode 2: OLD Cluster (typedb/typedb-cluster master — release 3.10.x)
+# Mode 2: OLD Cluster binary (typedb/typedb-cluster master — release 3.10.x)
 #
-# 3-node TypeDB Cluster using the OLD clustering architecture.
+# Single TypeDB Cluster server, no actual clustering.
+# The old cluster binary (master) is just a core server wrapper —
+# the only extra flag is --diagnostics.deployment-id.
 # Uses the released typedb-driver from PyPI.
-# Clustering is configured server-side; the driver connects to node 1.
 #
 # Binaries:
 #   bin/mode2/server_a   — e.g. baseline cluster build
 #   bin/mode2/server_b   — e.g. optimized cluster build (optional)
 #
-# Driver: typedb3cluster (Cluster edition, pip install typedb-driver)
+# Driver: typedb3 (Core edition, pip install typedb-driver)
 
-MODE_NAME="Mode 2 — OLD Cluster (3.10.x release)"
-MODE_DRIVER="typedb3cluster"
+MODE_NAME="Mode 2 — OLD Cluster binary (3.10.x release)"
+MODE_DRIVER="typedb3"
 MODE_VENV="$VENV_DIR/old"
-MODE_TPCC_CONFIG="$CONFIG_DIR/tpcc/cluster.cfg"
+MODE_TPCC_CONFIG="$CONFIG_DIR/tpcc/core.cfg"
 
-CLUSTER_NODES=${CLUSTER_NODES:-3}
+GRPC_PORT=1729
 
 mode2_binary_path() {
     local variant="$1"
@@ -30,62 +31,44 @@ mode2_start_server() {
     require_binary "$binary" "Mode 2 server"
     cleanup_servers
 
-    local i
-    for i in $(seq 1 "$CLUSTER_NODES"); do
-        local data_dir="$DATA_DIR/mode2_node${i}"
-        local cluster_dir="$DATA_DIR/mode2_cluster_${i}"
-        local wal_dir="$LOG_DIR/mode2_wal_${i}"
-        rm -rf "$data_dir" "$cluster_dir"
-        mkdir -p "$data_dir" "$cluster_dir" "$wal_dir"
-    done
+    local data_dir="$DATA_DIR/mode2"
+    local log_file="$LOG_DIR/mode2_${variant_tag}.log"
+    rm -rf "$data_dir"
+    mkdir -p "$data_dir" "$(dirname "$log_file")"
 
-    log "Starting ${CLUSTER_NODES}-node OLD cluster..."
-    for i in $(seq 1 "$CLUSTER_NODES"); do
-        local grpc_port=$((i * 10000 + 1729))
-        local cluster_port=$((i * 10000 + 1730))
-        local data_dir="$DATA_DIR/mode2_node${i}"
-        local cluster_dir="$DATA_DIR/mode2_cluster_${i}"
-        local wal_dir="$LOG_DIR/mode2_wal_${i}"
-        local log_file="$LOG_DIR/mode2_${variant_tag}_node${i}.log"
+    local config
+    config=$(mode2_generate_config "$data_dir")
 
-        local config_file="$CONFIG_DIR/generated/mode2_node${i}.yml"
-        mkdir -p "$(dirname "$config_file")"
-        local http_port=$((i * 10000 + 8001))
-        local monitoring_port=$((i * 10000 + 4104))
-        sed -e "s|DATA_DIR_PLACEHOLDER|$data_dir|g" \
-            -e "s|LOG_DIR_PLACEHOLDER|$wal_dir|g" \
-            -e "s|GRPC_PORT|$grpc_port|g" \
-            -e "s|HTTP_PORT|$http_port|g" \
-            -e "s|MONITORING_PORT|$monitoring_port|g" \
-            "$CONFIG_DIR/cluster_node.yml.template" > "$config_file"
+    log "Starting OLD Cluster binary, single node (port $GRPC_PORT)..."
+    "$binary" \
+        --config "$config" \
+        --development-mode.enabled true \
+        --diagnostics.deployment-id "benchmark" \
+        > "$log_file" 2>&1 &
 
-        "$binary" \
-            --config "$config_file" \
-            --development-mode.enabled true \
-            --diagnostics.deployment-id "node$i" \
-            --server.clustering.id "$i" \
-            --server.clustering.address "127.0.0.1:$cluster_port" \
-            --storage.clustering-directory "$cluster_dir" \
-            > "$log_file" 2>&1 &
+    if ! wait_for_port "$GRPC_PORT" 30; then
+        error "Server failed to start. Log:"
+        tail -20 "$log_file"
+        return 1
+    fi
+    sleep 5
+    log "Server ready on port $GRPC_PORT"
+}
 
-        log "  Node $i started (gRPC=$grpc_port, cluster=$cluster_port)"
-    done
+mode2_generate_config() {
+    local data_dir="$1"
+    local wal_dir="$LOG_DIR/mode2_wal"
+    mkdir -p "$wal_dir"
 
-    log "Waiting for cluster to form..."
-    sleep 20
-
-    for i in $(seq 1 "$CLUSTER_NODES"); do
-        local grpc_port=$((i * 10000 + 1729))
-        if nc -z 127.0.0.1 "$grpc_port" 2>/dev/null; then
-            log "  Node $i: ${GREEN}OK${NC}"
-        else
-            error "  Node $i: FAILED (port $grpc_port)"
-            tail -20 "$LOG_DIR/mode2_${variant_tag}_node${i}.log"
-            cleanup_servers
-            return 1
-        fi
-    done
-    log "Cluster ready."
+    local config_file="$CONFIG_DIR/generated/mode2.yml"
+    mkdir -p "$(dirname "$config_file")"
+    sed -e "s|DATA_DIR_PLACEHOLDER|$data_dir|g" \
+        -e "s|LOG_DIR_PLACEHOLDER|$wal_dir|g" \
+        -e "s|GRPC_PORT|$GRPC_PORT|g" \
+        -e "s|HTTP_PORT|8001|g" \
+        -e "s|MONITORING_PORT|4104|g" \
+        "$CONFIG_DIR/cluster_node.yml.template" > "$config_file"
+    echo "$config_file"
 }
 
 mode2_stop_server() {
