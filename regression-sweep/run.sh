@@ -146,8 +146,15 @@ build_version() {
         return 1
     fi
 
+    # Kill any lingering server processes before overwriting the binary
+    (cd "$BENCHMARK_DIR" && source modes/common.sh && cleanup_servers 2>/dev/null) || true
+
     local dest="$BENCHMARK_DIR/bin/mode1/server_a"
-    cp "$binary" "$dest"
+    rm -f "$dest"
+    if ! cp "$binary" "$dest"; then
+        error "Failed to copy binary to $dest"
+        return 1
+    fi
     chmod +x "$dest"
     log "Installed binary: $dest ($(du -h "$dest" | cut -f1))"
 }
