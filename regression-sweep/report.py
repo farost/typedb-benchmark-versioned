@@ -9,6 +9,14 @@ import sys
 from datetime import datetime
 
 
+ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*m')
+
+
+def strip_ansi(s):
+    """Remove ANSI escape codes from a string."""
+    return ANSI_ESCAPE.sub('', s)
+
+
 def extract_tpmc_from_log(log_path):
     """Extract tpmC values from a benchmark log file."""
     values = []
@@ -16,7 +24,8 @@ def extract_tpmc_from_log(log_path):
         return values
     with open(log_path) as f:
         for line in f:
-            m = re.search(r'Run \d+/\d+: ([0-9]+\.[0-9]+) tpmC', line)
+            clean = strip_ansi(line)
+            m = re.search(r'Run \d+/\d+: ([0-9]+\.[0-9]+) tpmC', clean)
             if m:
                 values.append(float(m.group(1)))
     return values

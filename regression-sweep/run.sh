@@ -185,9 +185,10 @@ benchmark_version() {
         fi
 
         # Extract tpmC values from benchmark output
-        # Lines like: "  Run 1/10: 665.400194350527 tpmC"
+        # Lines like: "  Run 1/10: <ANSI>665.400194350527 tpmC<ANSI>"
+        # Strip ANSI escape codes before matching
         local values
-        values=$(grep -oP 'Run \d+/\d+: \K[0-9]+\.[0-9]+(?= tpmC)' "$run_log" || true)
+        values=$(sed 's/\x1b\[[0-9;]*m//g' "$run_log" | grep -oP 'Run \d+/\d+: \K[0-9]+\.[0-9]+(?= tpmC)' || true)
         if [ -z "$values" ]; then
             warn "No tpmC values found in run $run_num output."
             continue
