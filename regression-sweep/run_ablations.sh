@@ -173,27 +173,24 @@ build_driver() {
     log "[driver] bazel build $target"
     ( cd "$TYPEDB_DRIVER_REPO" && bazel build "$target" )
 
+    # Always pick the latest wheel bazel just produced. The cluster branch's
+    # `assemble-pip` rule emits names like `typedb-driver310.whl` (1 dash) or
+    # `typedb_driver-1.2.3-cp310-...whl` (4 dashes). We must NOT pick up a
+    # stale renamed copy from a previous cell — exclude PEP427-stub names.
     local wheel
-    # Prefer a properly-named wheel (PEP 427: 5 dash-separated components) if one
-    # exists; otherwise fall back to whatever bazel produced and rename it. The
-    # cluster branch's `assemble-pip` rule emits e.g. `typedb-driver310.whl`,
-    # which pip rejects on filename alone — but the actual METADATA inside is
-    # fine, so a rename to a compliant stub gets us through.
-    wheel=$(ls -t "$TYPEDB_DRIVER_REPO/bazel-bin/python/"typedb_driver-*-*-*-*.whl 2>/dev/null | head -1)
-    if [[ -z "$wheel" ]]; then
-        wheel=$(ls -t "$TYPEDB_DRIVER_REPO/bazel-bin/python/"typedb*driver*.whl 2>/dev/null | head -1)
-    fi
+    wheel=$(ls -t "$TYPEDB_DRIVER_REPO/bazel-bin/python/"typedb*driver*.whl 2>/dev/null \
+              | grep -v 'typedb_driver-0\.0\.0-' \
+              | head -1)
     [[ -n "$wheel" && -f "$wheel" ]] || abort "no wheel produced under bazel-bin/python/"
-    log "[driver] wheel: $wheel"
+    log "[driver] wheel: $wheel ($(stat -c %y "$wheel" 2>/dev/null || stat -f %Sm "$wheel"))"
 
-    # Pip wheel-filename validation: needs at least 4 dashes (5 components).
-    local wheel_install="$wheel"
-    local dash_count; dash_count=$(basename "$wheel" | tr -cd '-' | wc -c)
-    if [[ "$dash_count" -lt 4 ]]; then
-        wheel_install="$(dirname "$wheel")/typedb_driver-0.0.0-py3-none-any.whl"
-        cp -f "$wheel" "$wheel_install"
-        log "[driver] renamed non-PEP427 wheel → $(basename "$wheel_install")"
-    fi
+    # Pip rejects non-PEP427 wheel filenames. Always copy to a fresh path in
+    # /tmp under a compliant stub name, so we never collide with a previous
+    # cell's renamed wheel. /tmp avoids bazel-bin permission/inode quirks.
+    local wheel_install="/tmp/typedb_driver-0.0.0-py3-none-any.whl"
+    rm -f "$wheel_install"
+    cp "$wheel" "$wheel_install"
+    log "[driver] staged wheel → $wheel_install ($(stat -c %s "$wheel_install" 2>/dev/null || stat -f %z "$wheel_install") bytes)"
 
     if [[ ! -d "$BENCH_DIR/venvs/new_b" ]]; then
         log "[driver] creating venvs/new_b"
@@ -263,6 +260,16 @@ run_one() {
     set -e
 
     cleanup_servers
+
+    # Snapshot the harness logs that contain the perf-counter dumps before
+    # the next cell overwrites them. Server dumps land in mode3_<variant>.log
+    # (because mode3.sh redirects the server with 2>&1); driver dumps land in
+    # tpcc_iteration.log / tpcc_load.log via the Python process's stderr.
+    for f in "mode3_${server_variant}.log" "tpcc_iteration.log" "tpcc_load.log"; do
+        if [[ -f "$BENCH_DIR/logs/$f" ]]; then
+            cp -f "$BENCH_DIR/logs/$f" "$RESULTS_DIR/${label}.${f}"
+        fi
+    done
 
     if [[ $rc -ne 0 ]]; then
         error "[$label] benchmark.sh exited $rc — see $stderr_file"
