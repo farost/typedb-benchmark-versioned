@@ -292,43 +292,49 @@ class Random:
 
 def tx_new_order(client: TypeDB, cfg: Config, rng: Random,
                  total_items: int, total_customers: int) -> None:
+    """Match a customer + an item, replace item.stock with a fresh value, insert
+    a purchase relation. Read-then-write pattern; values are precomputed in
+    Python because TypeQL doesn't allow arithmetic expressions inside `insert`.
+    """
     cust_id = rng.customer_id(total_customers)
     item_id = rng.item_id(total_items)
-    decrement = 1
+    new_stock = rng.rng.randint(50, 500)        # arbitrary; benchmark doesn't care
     amount = round(rng.rng.uniform(1.0, 50.0), 2)
-    q = f"""
-match
+    q = f"""match
   $c isa customer, has id {cust_id};
-  $i isa item, has id {item_id}, has stock $old_stock, has price $p;
+  $i isa item, has id {item_id}, has stock $old_stock;
 delete $old_stock of $i;
 insert
-  $i has stock ($old_stock - {decrement});
-  $purchase isa purchase (buyer: $c, product: $i), has amount {amount};
+  $i has stock {new_stock};
+  $p links (buyer: $c, product: $i), isa purchase, has amount {amount};
 """
     client.query_oneshot(cfg.database, q, type_="write", commit=True)
 
 
 def tx_payment(client: TypeDB, cfg: Config, rng: Random,
                total_customers: int) -> None:
+    """Match a customer's balance, replace it. Pure write."""
     cust_id = rng.customer_id(total_customers)
-    delta = round(rng.rng.uniform(1.0, 20.0), 2)
-    q = f"""
-match
+    new_balance = round(rng.rng.uniform(100.0, 2000.0), 2)
+    q = f"""match
   $c isa customer, has id {cust_id}, has balance $old_balance;
 delete $old_balance of $c;
-insert $c has balance ($old_balance + {delta});
+insert $c has balance {new_balance};
 """
     client.query_oneshot(cfg.database, q, type_="write", commit=True)
 
 
 def tx_stock(client: TypeDB, cfg: Config, rng: Random, total_items: int) -> None:
-    """Read 5 random items by id."""
+    """Match 5 random items by id, read their stock. Pure read.
+
+    No projection — bare `match` returns all bound variables; we discard
+    the response body."""
     ids = [str(rng.item_id(total_items)) for _ in range(5)]
-    # Build a match pattern for each item; we read but discard results.
-    matches = []
-    for k, iid in enumerate(ids):
-        matches.append(f"$i{k} isa item, has id {iid}, has stock $s{k};")
-    q = "match\n  " + "\n  ".join(matches) + "\nselect $s0, $s1, $s2, $s3, $s4;"
+    matches = [
+        f"  $i{k} isa item, has id {iid}, has stock $s{k};"
+        for k, iid in enumerate(ids)
+    ]
+    q = "match\n" + "\n".join(matches) + "\n"
     client.query_oneshot(cfg.database, q, type_="read", commit=False)
 
 
@@ -398,9 +404,33 @@ def worker(idx: int, cfg: Config, total_items: int, total_customers: int,
             else:                 stats.stock_err += 1
 
 
+def preflight(cfg: Config, total_items: int, total_customers: int) -> None:
+    """Run one of each transaction type before timing starts. Surfaces query
+    syntax errors immediately rather than letting workers churn for 60 s."""
+    print("[preflight] running one of each tx type to check the queries…")
+    client = TypeDB(cfg)
+    client.signin()
+    rng = Random(seed=42)
+    for name, fn in [
+        ("new_order", lambda: tx_new_order(client, cfg, rng, total_items, total_customers)),
+        ("payment",   lambda: tx_payment(client, cfg, rng, total_customers)),
+        ("stock",     lambda: tx_stock(client, cfg, rng, total_items)),
+    ]:
+        try:
+            fn()
+            print(f"[preflight] {name}: OK")
+        except Exception as e:
+            print(f"[preflight] {name}: FAILED — {e}", file=sys.stderr)
+            print(f"[preflight] aborting; fix the query before running the bench.",
+                  file=sys.stderr)
+            raise
+
+
 def run_benchmark(cfg: Config) -> dict:
     total_items = cfg.warehouses * cfg.items_per_warehouse
     total_customers = cfg.warehouses * cfg.customers_per_warehouse
+
+    preflight(cfg, total_items, total_customers)
 
     weights = list(cfg.mix)
     assert sum(weights) > 0, "mix sums to zero"
