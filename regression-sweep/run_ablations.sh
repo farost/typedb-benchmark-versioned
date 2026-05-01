@@ -255,7 +255,7 @@ run_one() {
 
     # Extract tpmC values + mean from the stdout
     local mean
-    mean=$(grep -oE 'Avg:\s*[0-9]+\.[0-9]+' "$stdout_file" | tail -1 | awk '{print $2}') || true
+    mean=$(awk '/^[[:space:]]*Avg:/ {a=$2} END {print a}' "$stdout_file")
     mean="${mean:-NA}"
     echo "result=OK mean_tpmc=$mean" >> "$meta_file"
 
