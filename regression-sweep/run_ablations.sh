@@ -105,13 +105,39 @@ assert_no_server() {
 
 # ── Build helpers ─────────────────────────────────────────────────
 
+# Try to fetch <branch> from FORK_REMOTE, falling back to origin, falling back
+# to whatever's local. Stderr suppressed — failures here are not fatal as long
+# as the local checkout has the branch (we verify after).
+fetch_branch() {
+    local repo="$1" branch="$2"
+    if git -C "$repo" remote | grep -qx "$FORK_REMOTE"; then
+        git -C "$repo" fetch "$FORK_REMOTE" --quiet "$branch" 2>/dev/null && return 0
+    fi
+    if git -C "$repo" remote | grep -qx origin; then
+        git -C "$repo" fetch origin --quiet "$branch" 2>/dev/null && return 0
+    fi
+    warn "could not fetch $branch in $repo — relying on local refs"
+    return 0
+}
+
+# Resolve <branch> to something checkoutable. Tries the local branch name, then
+# remote-tracking variants. Aborts if none resolve.
+resolve_branch() {
+    local repo="$1" branch="$2"
+    for ref in "$branch" "$FORK_REMOTE/$branch" "origin/$branch"; do
+        if git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null; then
+            echo "$ref"; return 0
+        fi
+    done
+    abort "branch '$branch' not found in $repo (looked for $branch, $FORK_REMOTE/$branch, origin/$branch)"
+}
+
 build_server() {
     local branch="$1"
     log "[server] checkout $branch"
-    git -C "$TYPEDB_REPO" fetch "$FORK_REMOTE" --quiet "$branch" || \
-        git -C "$TYPEDB_REPO" fetch --quiet
-    git -C "$TYPEDB_REPO" checkout --quiet "$branch" 2>/dev/null || \
-        git -C "$TYPEDB_REPO" checkout --quiet "$FORK_REMOTE/$branch"
+    fetch_branch "$TYPEDB_REPO" "$branch"
+    local ref; ref="$(resolve_branch "$TYPEDB_REPO" "$branch")"
+    git -C "$TYPEDB_REPO" checkout --quiet --detach "$ref"
     git -C "$TYPEDB_REPO" --no-pager log -1 --pretty=format:'    HEAD %h %s%n'
 
     if [[ "$SKIP_BUILD" == "1" ]]; then
@@ -132,10 +158,9 @@ build_server() {
 build_driver() {
     local branch="$1"
     log "[driver] checkout $branch"
-    git -C "$TYPEDB_DRIVER_REPO" fetch "$FORK_REMOTE" --quiet "$branch" || \
-        git -C "$TYPEDB_DRIVER_REPO" fetch --quiet
-    git -C "$TYPEDB_DRIVER_REPO" checkout --quiet "$branch" 2>/dev/null || \
-        git -C "$TYPEDB_DRIVER_REPO" checkout --quiet "$FORK_REMOTE/$branch"
+    fetch_branch "$TYPEDB_DRIVER_REPO" "$branch"
+    local ref; ref="$(resolve_branch "$TYPEDB_DRIVER_REPO" "$branch")"
+    git -C "$TYPEDB_DRIVER_REPO" checkout --quiet --detach "$ref"
     git -C "$TYPEDB_DRIVER_REPO" --no-pager log -1 --pretty=format:'    HEAD %h %s%n'
 
     if [[ "$SKIP_BUILD" == "1" ]]; then
