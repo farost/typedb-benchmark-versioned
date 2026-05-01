@@ -90,13 +90,24 @@ class TypeDB:
             h["Authorization"] = f"Bearer {self.token}"
         return h
 
+    @staticmethod
+    def _check(r) -> "requests.Response":
+        """Raise with the response body included so we see the actual error."""
+        if r.ok:
+            return r
+        body = (r.text or "")[:500]
+        raise requests.HTTPError(
+            f"{r.request.method} {r.request.url} → {r.status_code}: {body}",
+            response=r,
+        )
+
     def signin(self) -> str:
         r = self.s.post(
             f"{self.cfg.addr.rstrip('/')}/{self.cfg.api_version}/signin",
             json={"username": self.cfg.user, "password": self.cfg.password},
             timeout=self.cfg.request_timeout,
         )
-        r.raise_for_status()
+        self._check(r)
         self.token = r.json()["token"]
         return self.token
 
@@ -110,7 +121,7 @@ class TypeDB:
         r = self.s.post(self._url(f"/databases/{name}"), headers=self._hdr(),
                         timeout=self.cfg.request_timeout)
         if r.status_code not in (200, 201, 204):
-            r.raise_for_status()
+            self._check(r)
 
     def db_delete(self, name: str) -> None:
         """Idempotent. Different TypeDB branches map missing-DB to different
@@ -129,14 +140,16 @@ class TypeDB:
         )
 
     # transaction ops (multi-step)
-    def txn_open(self, db: str, type_: str = "Write") -> str:
+    # NOTE: TransactionType is serialised as camelCase enum on the server,
+    # so values must be "read" / "write" / "schema" (lowercase).
+    def txn_open(self, db: str, type_: str = "write") -> str:
         r = self.s.post(
             self._url("/transactions/open"),
             headers=self._hdr(),
             json={"databaseName": db, "transactionType": type_},
             timeout=self.cfg.request_timeout,
         )
-        r.raise_for_status()
+        self._check(r)
         return r.json()["transactionId"]
 
     def txn_query(self, txn_id: str, query: str) -> dict:
@@ -146,7 +159,7 @@ class TypeDB:
             json={"query": query},
             timeout=self.cfg.request_timeout,
         )
-        r.raise_for_status()
+        self._check(r)
         return r.json()
 
     def txn_commit(self, txn_id: str) -> None:
@@ -155,7 +168,7 @@ class TypeDB:
             headers=self._hdr(),
             timeout=self.cfg.request_timeout,
         )
-        r.raise_for_status()
+        self._check(r)
 
     def txn_close(self, txn_id: str) -> None:
         try:
@@ -168,7 +181,7 @@ class TypeDB:
             pass
 
     # one-shot (open+query+commit in a single call)
-    def query_oneshot(self, db: str, query: str, type_: str = "Write",
+    def query_oneshot(self, db: str, query: str, type_: str = "write",
                       commit: bool = True) -> dict:
         r = self.s.post(
             self._url("/query"),
@@ -181,8 +194,8 @@ class TypeDB:
             },
             timeout=self.cfg.request_timeout,
         )
-        r.raise_for_status()
-        return r.json()
+        self._check(r)
+        return r.json() if r.text else {}
 
 
 # ─── Schema + load ─────────────────────────────────────────────────────────
@@ -211,7 +224,7 @@ SCHEMA = """define
 
 def setup_schema(client: TypeDB, db: str) -> None:
     """Run the schema definition. Uses a Schema-type one-shot query."""
-    client.query_oneshot(db, SCHEMA, type_="Schema", commit=True)
+    client.query_oneshot(db, SCHEMA, type_="schema", commit=True)
 
 
 def seed_data(client: TypeDB, cfg: Config) -> None:
@@ -226,7 +239,7 @@ def seed_data(client: TypeDB, cfg: Config) -> None:
         inserts.append(
             f'$w{w} isa warehouse, has id {w}, has name "wh-{w}";'
         )
-    client.query_oneshot(cfg.database, "\n".join(inserts), type_="Write", commit=True)
+    client.query_oneshot(cfg.database, "\n".join(inserts), type_="write", commit=True)
 
     # Items — chunked inserts to avoid huge transactions
     item_id = 1
@@ -243,7 +256,7 @@ def seed_data(client: TypeDB, cfg: Config) -> None:
                     f'has stock {stock};'
                 )
                 item_id += 1
-            client.query_oneshot(cfg.database, "\n".join(ins), type_="Write", commit=True)
+            client.query_oneshot(cfg.database, "\n".join(ins), type_="write", commit=True)
 
     # Customers — chunked
     cust_id = 1
@@ -257,7 +270,7 @@ def seed_data(client: TypeDB, cfg: Config) -> None:
                     f'has name "cust-{cust_id}", has balance {bal};'
                 )
                 cust_id += 1
-            client.query_oneshot(cfg.database, "\n".join(ins), type_="Write", commit=True)
+            client.query_oneshot(cfg.database, "\n".join(ins), type_="write", commit=True)
 
     print(f"[load] inserted {item_id - 1} items, {cust_id - 1} customers.")
 
@@ -292,7 +305,7 @@ insert
   $i has stock ($old_stock - {decrement});
   $purchase isa purchase (buyer: $c, product: $i), has amount {amount};
 """
-    client.query_oneshot(cfg.database, q, type_="Write", commit=True)
+    client.query_oneshot(cfg.database, q, type_="write", commit=True)
 
 
 def tx_payment(client: TypeDB, cfg: Config, rng: Random,
@@ -305,7 +318,7 @@ match
 delete $old_balance of $c;
 insert $c has balance ($old_balance + {delta});
 """
-    client.query_oneshot(cfg.database, q, type_="Write", commit=True)
+    client.query_oneshot(cfg.database, q, type_="write", commit=True)
 
 
 def tx_stock(client: TypeDB, cfg: Config, rng: Random, total_items: int) -> None:
@@ -316,7 +329,7 @@ def tx_stock(client: TypeDB, cfg: Config, rng: Random, total_items: int) -> None
     for k, iid in enumerate(ids):
         matches.append(f"$i{k} isa item, has id {iid}, has stock $s{k};")
     q = "match\n  " + "\n  ".join(matches) + "\nselect $s0, $s1, $s2, $s3, $s4;"
-    client.query_oneshot(cfg.database, q, type_="Read", commit=False)
+    client.query_oneshot(cfg.database, q, type_="read", commit=False)
 
 
 # ─── Worker + coordinator ──────────────────────────────────────────────────
