@@ -113,10 +113,20 @@ class TypeDB:
             r.raise_for_status()
 
     def db_delete(self, name: str) -> None:
+        """Idempotent. Different TypeDB branches map missing-DB to different
+        HTTP statuses (some 404, some 400), so we existence-check first."""
+        if not self.db_exists(name):
+            return
         r = self.s.delete(self._url(f"/databases/{name}"), headers=self._hdr(),
                           timeout=self.cfg.request_timeout)
-        if r.status_code not in (200, 204, 404):
-            r.raise_for_status()
+        if r.status_code in (200, 204, 404):
+            return
+        # Surface the body so we can debug an actual delete failure
+        body = (r.text or "")[:300]
+        raise requests.HTTPError(
+            f"DELETE /databases/{name} returned {r.status_code}: {body}",
+            response=r,
+        )
 
     # transaction ops (multi-step)
     def txn_open(self, db: str, type_: str = "Write") -> str:
