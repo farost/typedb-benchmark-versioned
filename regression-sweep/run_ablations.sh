@@ -174,8 +174,8 @@ build_driver() {
     ( cd "$TYPEDB_DRIVER_REPO" && bazel build "$target" )
 
     local wheel
-    wheel=$(ls -t "$TYPEDB_DRIVER_REPO/bazel-bin/python/"typedb_driver-*.whl 2>/dev/null | head -1) \
-        || abort "no wheel produced under bazel-bin/python/"
+    wheel=$(ls -t "$TYPEDB_DRIVER_REPO/bazel-bin/python/"typedb*driver*.whl 2>/dev/null | head -1)
+    [[ -n "$wheel" && -f "$wheel" ]] || abort "no wheel produced under bazel-bin/python/ (looked for typedb*driver*.whl)"
     log "[driver] wheel: $wheel"
 
     if [[ ! -d "$BENCH_DIR/venvs/new_b" ]]; then
