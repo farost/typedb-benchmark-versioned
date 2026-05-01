@@ -174,18 +174,35 @@ build_driver() {
     ( cd "$TYPEDB_DRIVER_REPO" && bazel build "$target" )
 
     local wheel
-    wheel=$(ls -t "$TYPEDB_DRIVER_REPO/bazel-bin/python/"typedb*driver*.whl 2>/dev/null | head -1)
-    [[ -n "$wheel" && -f "$wheel" ]] || abort "no wheel produced under bazel-bin/python/ (looked for typedb*driver*.whl)"
+    # Prefer a properly-named wheel (PEP 427: 5 dash-separated components) if one
+    # exists; otherwise fall back to whatever bazel produced and rename it. The
+    # cluster branch's `assemble-pip` rule emits e.g. `typedb-driver310.whl`,
+    # which pip rejects on filename alone — but the actual METADATA inside is
+    # fine, so a rename to a compliant stub gets us through.
+    wheel=$(ls -t "$TYPEDB_DRIVER_REPO/bazel-bin/python/"typedb_driver-*-*-*-*.whl 2>/dev/null | head -1)
+    if [[ -z "$wheel" ]]; then
+        wheel=$(ls -t "$TYPEDB_DRIVER_REPO/bazel-bin/python/"typedb*driver*.whl 2>/dev/null | head -1)
+    fi
+    [[ -n "$wheel" && -f "$wheel" ]] || abort "no wheel produced under bazel-bin/python/"
     log "[driver] wheel: $wheel"
+
+    # Pip wheel-filename validation: needs at least 4 dashes (5 components).
+    local wheel_install="$wheel"
+    local dash_count; dash_count=$(basename "$wheel" | tr -cd '-' | wc -c)
+    if [[ "$dash_count" -lt 4 ]]; then
+        wheel_install="$(dirname "$wheel")/typedb_driver-0.0.0-py3-none-any.whl"
+        cp -f "$wheel" "$wheel_install"
+        log "[driver] renamed non-PEP427 wheel → $(basename "$wheel_install")"
+    fi
 
     if [[ ! -d "$BENCH_DIR/venvs/new_b" ]]; then
         log "[driver] creating venvs/new_b"
-        ( cd "$BENCH_DIR" && ./setup.sh new_b "$wheel" )
+        ( cd "$BENCH_DIR" && ./setup.sh new_b "$wheel_install" )
     else
         log "[driver] reinstalling into venvs/new_b"
         # shellcheck disable=SC1091
         ( source "$BENCH_DIR/venvs/new_b/bin/activate" && \
-          pip install --force-reinstall --quiet "$wheel" )
+          pip install --force-reinstall --quiet "$wheel_install" )
     fi
 }
 
