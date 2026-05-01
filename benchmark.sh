@@ -40,6 +40,7 @@ DURATION="${4:-120}"
 CLIENTS="${CLIENTS:-2}"
 WAREHOUSES="${WAREHOUSES:-1}"
 SCALEFACTOR="${SCALEFACTOR:-100}"
+DRIVER_VARIANT="${DRIVER_VARIANT:-a}"
 
 if [ -z "$MODE" ] || [ -z "$VARIANT" ]; then
     echo "TypeDB TPC-C Benchmark Runner"
@@ -80,7 +81,23 @@ fi
 source "$SCRIPT_DIR/modes/common.sh"
 source "$MODE_SCRIPT"
 
-export MODE VARIANT RUNS DURATION CLIENTS WAREHOUSES SCALEFACTOR
+# Override MODE_VENV when DRIVER_VARIANT=b: switch venvs/new → venvs/new_b for
+# modes that use the locally-built driver. mode1 / mode2 (pip-installed driver)
+# are unaffected — DRIVER_VARIANT=b on those modes is a no-op.
+case "$DRIVER_VARIANT" in
+    a) ;;
+    b)
+        case "$MODE_VENV" in
+            */new) MODE_VENV="${MODE_VENV%/new}/new_b" ;;
+        esac
+        ;;
+    *)
+        error "Unknown DRIVER_VARIANT: $DRIVER_VARIANT (expected: a, b)"
+        exit 1
+        ;;
+esac
+
+export MODE VARIANT RUNS DURATION CLIENTS WAREHOUSES SCALEFACTOR DRIVER_VARIANT
 
 # ── Resolve binary and function names from mode ───────────────────
 
@@ -140,11 +157,12 @@ cleanup_and_exit() {
 trap cleanup_and_exit INT TERM
 
 header "TypeDB TPC-C Benchmark"
-log "Mode:      $MODE_NAME"
-log "Variant:   $VARIANT"
-log "Runs:      $RUNS × ${DURATION}s"
-log "Clients:   $CLIENTS"
-log "Warehouses: $WAREHOUSES (scalefactor=$SCALEFACTOR)"
+log "Mode:           $MODE_NAME"
+log "Server variant: $VARIANT"
+log "Driver variant: $DRIVER_VARIANT  (venv: $MODE_VENV)"
+log "Runs:           $RUNS × ${DURATION}s"
+log "Clients:        $CLIENTS"
+log "Warehouses:     $WAREHOUSES (scalefactor=$SCALEFACTOR)"
 echo ""
 
 case "$VARIANT" in

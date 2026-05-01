@@ -52,7 +52,8 @@ setup_old_venv() {
 
 setup_new_venv() {
     local wheel_path="$1"
-    local venv_path="$VENV_DIR/new"
+    local venv_name="${2:-new}"
+    local venv_path="$VENV_DIR/$venv_name"
     log "Setting up NEW driver environment: $venv_path"
 
     rm -rf "$venv_path"
@@ -114,6 +115,11 @@ setup_new_venv() {
     log "NEW venv ready: $venv_path"
 }
 
+setup_new_b_venv() {
+    # Second slot for A/B-comparing driver builds (e.g. baseline vs instrumented).
+    setup_new_venv "$1" "new_b"
+}
+
 # ── Create directory structure ────────────────────────────────────
 
 setup_dirs() {
@@ -140,6 +146,9 @@ case "${1:-}" in
     new)
         setup_new_venv "${2:-}"
         ;;
+    new_b)
+        setup_new_b_venv "${2:-}"
+        ;;
     all)
         setup_old_venv
         setup_new_venv "${2:-}"
@@ -147,11 +156,12 @@ case "${1:-}" in
     *)
         echo "TypeDB Benchmark — Environment Setup"
         echo ""
-        echo "Usage: $0 {old|new|all} [wheel_path]"
+        echo "Usage: $0 {old|new|new_b|all} [wheel_path]"
         echo ""
         echo "  old               Setup for modes 1 & 2 (pip install typedb-driver)"
-        echo "  new [wheel]       Setup for modes 3, 4, 5 (local driver wheel)"
-        echo "  all [wheel]       Setup both environments"
+        echo "  new [wheel]       Setup for modes 3, 4, 5 — driver variant 'a'"
+        echo "  new_b [wheel]     Setup second NEW slot for A/B driver comparison (variant 'b')"
+        echo "  all [wheel]       Setup OLD + NEW (variant 'a')"
         echo ""
         echo "Current state:"
         if [ -d "$VENV_DIR/old" ]; then
@@ -160,9 +170,14 @@ case "${1:-}" in
             echo -e "  OLD venv: ${YELLOW}not set up${NC} (run: ./setup.sh old)"
         fi
         if [ -d "$VENV_DIR/new" ]; then
-            echo -e "  NEW venv: ${GREEN}exists${NC}"
+            echo -e "  NEW venv (a):   ${GREEN}exists${NC}"
         else
-            echo -e "  NEW venv: ${YELLOW}not set up${NC} (run: ./setup.sh new)"
+            echo -e "  NEW venv (a):   ${YELLOW}not set up${NC} (run: ./setup.sh new)"
+        fi
+        if [ -d "$VENV_DIR/new_b" ]; then
+            echo -e "  NEW venv (b):   ${GREEN}exists${NC}"
+        else
+            echo -e "  NEW venv (b):   ${YELLOW}not set up${NC} (run: ./setup.sh new_b /path/to/wheel)"
         fi
         echo ""
         echo "Binary directories:"

@@ -54,6 +54,22 @@ cp /path/to/typedb_server bin/mode1/server_a
 | `WAREHOUSES` | `1` | TPC-C warehouse count |
 | `SCALEFACTOR` | `100` | TPC-C scale factor (100 = 1/100th of full TPC-C) |
 | `CLUSTER_NODES` | `3` | Number of cluster nodes (modes 2, 5) |
+| `DRIVER_VARIANT` | `a` | `a` = `venvs/new`, `b` = `venvs/new_b` — for A/B-comparing driver builds (modes 3/4/5). No-op for modes 1 & 2. |
+
+### Driver A/B comparison (modes 3, 4, 5)
+
+To compare two driver builds (e.g. baseline vs instrumented) against the same server, set up both venvs and pass `DRIVER_VARIANT`:
+
+```bash
+./setup.sh new   /path/to/driver_a.whl     # → venvs/new
+./setup.sh new_b /path/to/driver_b.whl     # → venvs/new_b
+
+# Run the 2x2 matrix (server_a/b × driver_a/b):
+DRIVER_VARIANT=a ./benchmark.sh mode3 a 5 120
+DRIVER_VARIANT=a ./benchmark.sh mode3 b 5 120
+DRIVER_VARIANT=b ./benchmark.sh mode3 a 5 120
+DRIVER_VARIANT=b ./benchmark.sh mode3 b 5 120
+```
 
 **Examples:**
 
